@@ -1,0 +1,8 @@
+# Meeting room email addresses (one per line)
+# Add email addresses of meeting rooms to exclude them from attendee lists
+# Lines starting with # are ignored
+
+conference-room-1@company.com
+meeting-room-a@company.com
+переговорная-401@company.ru
+

@@ -1,0 +1,48 @@
+# CalDAV Configuration
+# Copy this file to .env and replace with your actual values
+
+# CalDAV server URL
+# Examples:
+# - Google Calendar: https://apidata.googleusercontent.com/caldav/v2/[calendar_id]/events
+# - Nextcloud: https://your-nextcloud.com/remote.php/dav
+# - iCloud: https://caldav.icloud.com
+CALDAV_URL=https://your-caldav-server.com/path/to/calendar
+
+# Username for CalDAV authentication
+CALDAV_USERNAME=your_username
+
+# Password for CalDAV authentication
+CALDAV_PASSWORD=your_password
+
+# CardDAV addressbook home URL for contact resolution (optional)
+# If specified, attendee email addresses will be resolved to full names from addressbook
+# Should point to the addressbook home collection (not the base server URL)
+# Examples:
+# - Yandex 360: https://carddav.yandex.ru/addressbook/username@domain.ru/
+# - Nextcloud: https://your-nextcloud.com/remote.php/dav/addressbooks/username/
+# - iCloud: https://contacts.icloud.com/[your-id]/carddavhome/card/
+CARDDAV_URL=https://carddav.yandex.ru/addressbook/username@domain.ru/
+
+# Username for CardDAV authentication (optional, if not specified, CALDAV_USERNAME will be used)
+CARDDAV_USERNAME=your_username
+
+# Password for CardDAV authentication (optional, if not specified, CALDAV_PASSWORD will be used)
+CARDDAV_PASSWORD=your_password
+
+# Timezone offset in hours from UTC (optional, default: +3 for Moscow)
+# Examples: +3 (Moscow), 0 (London/UTC), -5 (New York EST), +5.5 (India)
+TIMEZONE_OFFSET=+3
+
+# Document title (optional, default: Расписание)
+# This will be displayed as the main heading in the document
+DOCUMENT_TITLE=Расписание
+
+# Output path for generated documents (optional, default: current directory)
+# Examples: /Users/username/Documents, ./output, /path/to/schedules
+OUTPUT_PATH=.
+
+# Filename prefix (optional, default: schedule_)
+# This prefix will be added before the date in the filename
+# Example: schedule_10.11.25.docx, расписание_10.11.25.docx
+FILENAME_PREFIX=schedule_
+
