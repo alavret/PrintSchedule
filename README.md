@@ -52,7 +52,7 @@ meeting-room-a@company.com
 
 ### Yandex 360
 ```
-CALDAV_URL=https://caldav.yandex.ru/calendars/username@domain.ru/events-XXXXX/
+CALDAV_URL=https://caldav.yandex.ru
 CALDAV_USERNAME=username@domain.ru
 CALDAV_PASSWORD=ваш_пароль
 CARDDAV_URL=https://carddav.yandex.ru/addressbook/username@domain.ru/
@@ -60,6 +60,13 @@ TIMEZONE_OFFSET=+3
 # Для Yandex 360 обычно используются те же учетные данные
 # CARDDAV_USERNAME и CARDDAV_PASSWORD можно не указывать
 ```
+
+**Важно:** Для Yandex 360 необходимо создать специальный пароль приложения:
+1. Перейдите на страницу https://id.yandex.ru
+2. Откройте раздел **Безопасность**
+3. Выберите пункт **Пароли приложений**
+4. Создайте новый пароль для приложения CalDAV/CardDAV
+5. Используйте этот пароль в параметре `CALDAV_PASSWORD`
 
 ### Google Calendar
 ```
