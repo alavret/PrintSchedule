@@ -407,6 +407,32 @@ def load_meeting_room_emails(filename='meeting_room_emails.txt'):
     return room_emails
 
 
+def get_partstat_indicator(partstat):
+    """Get Unicode indicator for participant status.
+    
+    Args:
+        partstat: PARTSTAT parameter value from iCalendar (ACCEPTED, DECLINED, NEEDS-ACTION, TENTATIVE, etc.)
+    
+    Returns:
+        Unicode character representing the status
+    """
+    if not partstat:
+        return '○'  # Circle for no response/needs action
+    
+    partstat_upper = partstat.upper()
+    
+    if partstat_upper == 'ACCEPTED':
+        return '✓'  # Checkmark for accepted
+    elif partstat_upper == 'DECLINED':
+        return '✗'  # Cross for declined
+    elif partstat_upper == 'TENTATIVE':
+        return '?'  # Question mark for tentative
+    elif partstat_upper == 'DELEGATED':
+        return '→'  # Arrow for delegated
+    else:  # NEEDS-ACTION or unknown
+        return '○'  # Circle for needs action
+
+
 def resolve_attendee_name(attendee_email, email_to_name):
     """Resolve attendee email to full name from addressbook."""
     # Clean email address
@@ -466,8 +492,17 @@ def get_events_for_date(calendar, target_date, tz, email_to_name=None, room_emai
                 'attendees': []
             }
             
-            # Extract attendees (excluding room emails)
-            attendee_emails = []
+            # Extract organizer email
+            organizer_email = None
+            if hasattr(vevent, 'organizer'):
+                organizer_str = str(vevent.organizer.value)
+                if organizer_str.startswith('mailto:'):
+                    organizer_email = organizer_str[7:].lower()
+                else:
+                    organizer_email = organizer_str.lower()
+            
+            # Extract attendees (excluding room emails and organizer) with their roles and participation status
+            attendee_data = []  # Will store dicts with email, role, and partstat
             if hasattr(vevent, 'attendee_list'):
                 for attendee in vevent.attendee_list:
                     # Extract email from attendee
@@ -477,9 +512,15 @@ def get_events_for_date(calendar, target_date, tz, email_to_name=None, room_emai
                     else:
                         attendee_email = attendee_str
                     
-                    # Skip meeting room emails
-                    if attendee_email.lower() not in room_emails:
-                        attendee_emails.append(attendee_email)
+                    # Skip meeting room emails and organizer
+                    if attendee_email.lower() not in room_emails and attendee_email.lower() != organizer_email:
+                        # Extract ROLE and PARTSTAT parameters if available
+                        role = None
+                        partstat = None
+                        if hasattr(attendee, 'params'):
+                            role = attendee.params.get('ROLE', [None])[0]
+                            partstat = attendee.params.get('PARTSTAT', [None])[0]
+                        attendee_data.append({'email': attendee_email, 'role': role, 'partstat': partstat})
             elif hasattr(vevent, 'attendee'):
                 attendee = vevent.attendee
                 attendee_str = str(attendee.value)
@@ -488,28 +529,49 @@ def get_events_for_date(calendar, target_date, tz, email_to_name=None, room_emai
                 else:
                     attendee_email = attendee_str
                 
-                # Skip meeting room emails
-                if attendee_email.lower() not in room_emails:
-                    attendee_emails.append(attendee_email)
+                # Skip meeting room emails and organizer
+                if attendee_email.lower() not in room_emails and attendee_email.lower() != organizer_email:
+                    # Extract ROLE and PARTSTAT parameters if available
+                    role = None
+                    partstat = None
+                    if hasattr(attendee, 'params'):
+                        role = attendee.params.get('ROLE', [None])[0]
+                        partstat = attendee.params.get('PARTSTAT', [None])[0]
+                    attendee_data.append({'email': attendee_email, 'role': role, 'partstat': partstat})
             
-            # Resolve attendee names from addressbook and keep both name and email
-            attendees_info = []
-            if email_to_name:
-                for email in attendee_emails:
+            # Resolve attendee names from addressbook and separate by role
+            required_attendees = []
+            optional_attendees = []
+            
+            for att_data in attendee_data:
+                email = att_data['email']
+                role = att_data['role']
+                partstat = att_data['partstat']
+                
+                # Resolve name if possible
+                resolved_name = None
+                if email_to_name:
                     resolved_name = resolve_attendee_name(email, email_to_name)
                     # Check if name was resolved (different from email)
-                    if resolved_name != email:
-                        attendees_info.append({'name': resolved_name, 'email': email})
-                    else:
-                        attendees_info.append({'name': None, 'email': email})
-            else:
-                # If no addressbook, use emails only
-                for email in attendee_emails:
-                    attendees_info.append({'name': None, 'email': email})
+                    if resolved_name == email:
+                        resolved_name = None
+                
+                attendee_info = {'name': resolved_name, 'email': email, 'partstat': partstat}
+                
+                # Classify by role: OPT-PARTICIPANT is optional, everything else is required
+                if role == 'OPT-PARTICIPANT':
+                    optional_attendees.append(attendee_info)
+                else:
+                    required_attendees.append(attendee_info)
             
-            # Sort attendees alphabetically by name or email
-            attendees_info.sort(key=lambda x: x['name'] if x['name'] else x['email'])
-            event_data['attendees'] = attendees_info
+            # Sort each group alphabetically by name or email
+            required_attendees.sort(key=lambda x: x['name'] if x['name'] else x['email'])
+            optional_attendees.sort(key=lambda x: x['name'] if x['name'] else x['email'])
+            
+            event_data['required_attendees'] = required_attendees
+            event_data['optional_attendees'] = optional_attendees
+            # Keep 'attendees' for backward compatibility (all attendees combined)
+            event_data['attendees'] = required_attendees + optional_attendees
             
             # Handle datetime objects for start
             if event_data['start']:
@@ -658,16 +720,24 @@ def create_word_document(events, output_filename, target_date, document_title='�
             # Location
             row_cells[2].text = event['location']
             
-            # Attendees - each on a new line with email in parentheses if name exists
-            if event['attendees']:
+            # Attendees - first required, then optional with separator
+            required_attendees = event.get('required_attendees', [])
+            optional_attendees = event.get('optional_attendees', [])
+            
+            if required_attendees or optional_attendees:
                 # Clear the cell first
                 row_cells[3].text = ''
                 paragraph = row_cells[3].paragraphs[0]
                 
-                for i, attendee in enumerate(event['attendees']):
+                # Add required attendees first
+                for i, attendee in enumerate(required_attendees):
                     if i > 0:
                         # Add line break between attendees
                         paragraph.add_run('\n')
+                    
+                    # Add status indicator before the name
+                    status_indicator = get_partstat_indicator(attendee.get('partstat'))
+                    paragraph.add_run(f"{status_indicator} ")
                     
                     if attendee['name']:
                         # Format: "Full Name (email@domain.com)" with email in italic
@@ -682,6 +752,35 @@ def create_word_document(events, output_filename, target_date, document_title='�
                         # Format: "email@domain.com" - all in italic
                         email_run = paragraph.add_run(attendee['email'])
                         email_run.italic = True
+                
+                # Add optional attendees with separator if they exist
+                if optional_attendees:
+                    # Add separator line
+                    if required_attendees:
+                        paragraph.add_run('\n')
+                    separator_run = paragraph.add_run('Необязательные участники:')
+                    separator_run.bold = True
+                    
+                    for attendee in optional_attendees:
+                        paragraph.add_run('\n')
+                        
+                        # Add status indicator before the name
+                        status_indicator = get_partstat_indicator(attendee.get('partstat'))
+                        paragraph.add_run(f"{status_indicator} ")
+                        
+                        if attendee['name']:
+                            # Format: "Full Name (email@domain.com)" with email in italic
+                            # Add name in regular font
+                            paragraph.add_run(attendee['name'])
+                            paragraph.add_run(' (')
+                            # Add email in italic
+                            email_run = paragraph.add_run(attendee['email'])
+                            email_run.italic = True
+                            paragraph.add_run(')')
+                        else:
+                            # Format: "email@domain.com" - all in italic
+                            email_run = paragraph.add_run(attendee['email'])
+                            email_run.italic = True
             else:
                 row_cells[3].text = ''
         
