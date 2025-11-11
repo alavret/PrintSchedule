@@ -829,8 +829,22 @@ Date format examples:
         )
         args = parser.parse_args()
         
+        # If date is not provided, prompt for input with default value
+        date_arg = args.date
+        if date_arg is None:
+            # Get default date (today) in DD.MM.YY format
+            default_date = datetime.now().strftime('%d.%m.%y')
+            try:
+                user_input = input(f"Введите дату для печати расписания [нажмите Enter для {default_date}]: ").strip()
+                # If user just pressed Enter (empty input), use default
+                date_arg = user_input if user_input else default_date
+            except (EOFError, KeyboardInterrupt):
+                # If input is interrupted, use default
+                print(f"\nИспользуется дата по умолчанию: {default_date}")
+                date_arg = default_date
+        
         # Parse target date
-        target_date = parse_date_argument(args.date)
+        target_date = parse_date_argument(date_arg)
         print(f"Generating schedule for: {target_date.strftime('%d.%m.%Y')}")
         
         # Load configuration
