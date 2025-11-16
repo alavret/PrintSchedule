@@ -245,22 +245,26 @@ def load_contacts_from_addressbook(addressbook_url, username, password):
                     # Parse vCard
                     vcard = vobject.readOne(address_data.text)
                     
-                    # Get full name
+                    # Get full name - prioritize structured name (N) over full name (FN)
                     full_name = None
-                    if hasattr(vcard, 'fn') and vcard.fn.value:
-                        full_name = str(vcard.fn.value).strip()
                     
-                    if not full_name and hasattr(vcard, 'n'):
-                        # Build name from components (Family, Given, Middle)
+                    # First, try to build name from structured components (Family, Given, Middle/Additional)
+                    if hasattr(vcard, 'n'):
                         n = vcard.n.value
-                        name_parts = []
-                        if n.family:
-                            name_parts.append(n.family)
-                        if n.given:
-                            name_parts.append(n.given)
-                        if n.additional:
-                            name_parts.append(n.additional)
-                        full_name = ' '.join(name_parts).strip()
+                        # Check if at least family or given name is present
+                        if n.family or n.given:
+                            name_parts = []
+                            if n.family:
+                                name_parts.append(n.family)
+                            if n.given:
+                                name_parts.append(n.given)
+                            if n.additional:
+                                name_parts.append(n.additional)
+                            full_name = ' '.join(name_parts).strip()
+                    
+                    # If structured name is empty, fall back to full name (FN)
+                    if not full_name and hasattr(vcard, 'fn') and vcard.fn.value:
+                        full_name = str(vcard.fn.value).strip()
                     
                     # Skip contacts without names
                     if not full_name:
@@ -660,8 +664,12 @@ def format_time_cell(event):
     return time_str
 
 
-def create_word_document(events, output_filename, target_date, document_title='Расписание'):
-    """Create Word document with schedule table."""
+def create_word_document_compact(events, output_filename, target_date, document_title='Расписание'):
+    """Create Word document with compact 2-column schedule table.
+    
+    First column (3 cm): Time range and duration
+    Second column (remaining space): Event summary, location, and participants
+    """
     doc = Document()
     
     # Set page margins to 1.5 cm
@@ -687,107 +695,134 @@ def create_word_document(events, output_filename, target_date, document_title='�
     if not events:
         doc.add_paragraph('На сегодня встреч не запланировано.')
     else:
-        # Create table with header
-        table = doc.add_table(rows=1, cols=4)
+        # Separate all-day events from timed events
+        all_day_events = [e for e in events if e['is_all_day']]
+        timed_events = [e for e in events if not e['is_all_day']]
+        
+        # Create table without header
+        table = doc.add_table(rows=0, cols=2)
         table.style = 'Light Grid Accent 1'
         table.autofit = False
         table.allow_autofit = False
         
-        # Set header row
-        header_cells = table.rows[0].cells
-        header_cells[0].text = 'Время'
-        header_cells[1].text = 'Тема'
-        header_cells[2].text = 'Место'
-        header_cells[3].text = 'Участники'
-        
-        # Make header bold and center-aligned
-        for cell in header_cells:
-            for paragraph in cell.paragraphs:
-                paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-                for run in paragraph.runs:
-                    run.font.bold = True
-        
-        # Add events to table
-        for event in events:
+        # Add all-day events in a single row if any exist
+        if all_day_events:
             row_cells = table.add_row().cells
             
-            # Time (start - end with duration)
-            row_cells[0].text = format_time_cell(event)
+            # FIRST COLUMN: "Весь день"
+            time_paragraph = row_cells[0].paragraphs[0]
+            time_paragraph.add_run('Весь день')
             
-            # Summary
-            row_cells[1].text = event['summary']
+            # SECOND COLUMN: All events info separated by newline
+            info_paragraph = row_cells[1].paragraphs[0]
             
-            # Location
-            row_cells[2].text = event['location']
-            
-            # Attendees - first required, then optional with separator
-            required_attendees = event.get('required_attendees', [])
-            optional_attendees = event.get('optional_attendees', [])
-            
-            if required_attendees or optional_attendees:
-                # Clear the cell first
-                row_cells[3].text = ''
-                paragraph = row_cells[3].paragraphs[0]
+            for event_idx, event in enumerate(all_day_events):
+                if event_idx > 0:
+                    # Add blank line between events
+                    info_paragraph.add_run('\n')
                 
-                # Add required attendees first
-                for i, attendee in enumerate(required_attendees):
-                    if i > 0:
-                        # Add line break between attendees
-                        paragraph.add_run('\n')
-                    
-                    # Add status indicator before the name
-                    status_indicator = get_partstat_indicator(attendee.get('partstat'))
-                    paragraph.add_run(f"{status_indicator} ")
-                    
-                    if attendee['name']:
-                        # Format: "Full Name (email@domain.com)" with email in italic
-                        # Add name in regular font
-                        paragraph.add_run(attendee['name'])
-                        paragraph.add_run(' (')
-                        # Add email in italic
-                        email_run = paragraph.add_run(attendee['email'])
-                        email_run.italic = True
-                        paragraph.add_run(')')
-                    else:
-                        # Format: "email@domain.com" - all in italic
-                        email_run = paragraph.add_run(attendee['email'])
-                        email_run.italic = True
+                # Event summary (bold)
+                summary_run = info_paragraph.add_run(event['summary'])
+                summary_run.bold = True
                 
-                # Add optional attendees with separator if they exist
-                if optional_attendees:
-                    # Add separator line
-                    if required_attendees:
-                        paragraph.add_run('\n')
-                    separator_run = paragraph.add_run('Необязательные участники:')
-                    separator_run.bold = True
-                    
-                    for attendee in optional_attendees:
-                        paragraph.add_run('\n')
-                        
-                        # Add status indicator before the name
-                        status_indicator = get_partstat_indicator(attendee.get('partstat'))
-                        paragraph.add_run(f"{status_indicator} ")
-                        
+                # Location and participants
+                location_and_participants = []
+                
+                if event['location']:
+                    location_and_participants.append(event['location'])
+                
+                # Collect all attendees (required + optional)
+                all_attendees = event.get('required_attendees', []) + event.get('optional_attendees', [])
+                
+                # Format attendees: use name if available, otherwise email
+                if all_attendees:
+                    attendee_names = []
+                    for attendee in all_attendees:
                         if attendee['name']:
-                            # Format: "Full Name (email@domain.com)" with email in italic
-                            # Add name in regular font
-                            paragraph.add_run(attendee['name'])
-                            paragraph.add_run(' (')
-                            # Add email in italic
-                            email_run = paragraph.add_run(attendee['email'])
-                            email_run.italic = True
-                            paragraph.add_run(')')
+                            attendee_names.append(attendee['name'])
                         else:
-                            # Format: "email@domain.com" - all in italic
-                            email_run = paragraph.add_run(attendee['email'])
-                            email_run.italic = True
-            else:
-                row_cells[3].text = ''
+                            attendee_names.append(attendee['email'])
+                    
+                    participants_str = "ответственные " + ', '.join(attendee_names)
+                    location_and_participants.append(participants_str)
+                
+                # Add the second line if there's any content
+                if location_and_participants:
+                    info_paragraph.add_run('\n')
+                    details_run = info_paragraph.add_run(', '.join(location_and_participants))
+                    details_run.bold = False
+        
+        # Add timed events to table
+        for event in timed_events:
+            row_cells = table.add_row().cells
+            
+            # FIRST COLUMN: Time range and duration
+            time_paragraph = row_cells[0].paragraphs[0]
+            
+            if event['start'] and event['end']:
+                # Add time range on first line
+                time_range = f"{event['start'].strftime('%H:%M')} - {event['end'].strftime('%H:%M')}"
+                time_paragraph.add_run(time_range)
+                
+                # Add duration on second line in parentheses
+                if event['duration']:
+                    total_seconds = int(event['duration'].total_seconds())
+                    hours = total_seconds // 3600
+                    minutes = (total_seconds % 3600) // 60
+                    
+                    if hours > 0 and minutes > 0:
+                        duration_str = f"{hours} ч {minutes} мин"
+                    elif hours > 0:
+                        duration_str = f"{hours} ч"
+                    elif minutes > 0:
+                        duration_str = f"{minutes} мин"
+                    else:
+                        duration_str = "0 мин"
+                    
+                    time_paragraph.add_run('\n')
+                    time_paragraph.add_run(f"({duration_str})")
+            
+            # SECOND COLUMN: Summary, location, and participants
+            info_paragraph = row_cells[1].paragraphs[0]
+            
+            # Line 1: Event summary (bold)
+            summary_run = info_paragraph.add_run(event['summary'])
+            summary_run.bold = True
+            
+            # Line 2: Location and participants
+            location_and_participants = []
+            
+            # Add location if present (use name only if available, otherwise email)
+            if event['location']:
+                location_and_participants.append(event['location'])
+            
+            # Collect all attendees (required + optional)
+            all_attendees = event.get('required_attendees', []) + event.get('optional_attendees', [])
+            
+            # Format attendees: use name if available, otherwise email
+            if all_attendees:
+                attendee_names = []
+                for attendee in all_attendees:
+                    # If name exists, use it; otherwise use email
+                    if attendee['name']:
+                        attendee_names.append(attendee['name'])
+                    else:
+                        attendee_names.append(attendee['email'])
+                
+                # Add "ответственные" label before the list
+                participants_str = "ответственные " + ', '.join(attendee_names)
+                location_and_participants.append(participants_str)
+            
+            # Add the second line if there's any content
+            if location_and_participants:
+                info_paragraph.add_run('\n')
+                details_run = info_paragraph.add_run(', '.join(location_and_participants))
+                details_run.bold = False
         
         # Set column widths
         # A4 page width is 21 cm, with 1.5 cm margins on each side = 18 cm available
-        # Column widths: 2 cm, 4 cm, 4 cm, 8 cm
-        widths = [Cm(3), Cm(4), Cm(4), Cm(8)]
+        # First column: 3 cm, Second column: 15 cm (18 - 3)
+        widths = [Cm(3), Cm(15)]
         
         # Set width for each cell in each column
         for row in table.rows:
@@ -887,7 +922,7 @@ Date format examples:
         
         # Create Word document
         print("Creating Word document...")
-        create_word_document(events, output_path, target_date, config['document_title'])
+        create_word_document_compact(events, output_path, target_date, config['document_title'])
         
         # Print document if requested
         if args.print:
