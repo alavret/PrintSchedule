@@ -437,6 +437,23 @@ def get_partstat_indicator(partstat):
         return '○'  # Circle for needs action
 
 
+def abbreviate_name(full_name):
+    """Abbreviate a full name to 'Фамилия И.О.' format.
+    
+    'Иванов Иван Васильевич' -> 'Иванов И.В.'
+    'Иванов Иван' -> 'Иванов И.'
+    'Иванов' -> 'Иванов'
+    """
+    parts = full_name.split()
+    if len(parts) <= 1:
+        return full_name
+    result = parts[0]
+    for part in parts[1:]:
+        if part:
+            result += f" {part[0]}."
+    return result
+
+
 def resolve_attendee_name(attendee_email, email_to_name):
     """Resolve attendee email to full name from addressbook."""
     # Clean email address
@@ -734,12 +751,12 @@ def create_word_document_compact(events, output_filename, target_date, document_
                 # Collect all attendees (required + optional)
                 all_attendees = event.get('required_attendees', []) + event.get('optional_attendees', [])
                 
-                # Format attendees: use name if available, otherwise email
+                # Format attendees: use abbreviated name if available, otherwise email
                 if all_attendees:
                     attendee_names = []
                     for attendee in all_attendees:
                         if attendee['name']:
-                            attendee_names.append(attendee['name'])
+                            attendee_names.append(abbreviate_name(attendee['name']))
                         else:
                             attendee_names.append(attendee['email'])
                     
@@ -799,13 +816,12 @@ def create_word_document_compact(events, output_filename, target_date, document_
             # Collect all attendees (required + optional)
             all_attendees = event.get('required_attendees', []) + event.get('optional_attendees', [])
             
-            # Format attendees: use name if available, otherwise email
+            # Format attendees: use abbreviated name if available, otherwise email
             if all_attendees:
                 attendee_names = []
                 for attendee in all_attendees:
-                    # If name exists, use it; otherwise use email
                     if attendee['name']:
-                        attendee_names.append(attendee['name'])
+                        attendee_names.append(abbreviate_name(attendee['name']))
                     else:
                         attendee_names.append(attendee['email'])
                 
